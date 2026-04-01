@@ -39,7 +39,7 @@ app.get('/test-db', async (req, res) => {
   }
 });
 // Nơi gắn các thư mục routes sau này (sẽ tạo sau)
-// app.use('/quiz', require('./src/routes/quiz'));
+ app.use('/quiz', require('./src/routes/quiz'));
  app.use('/events', require('./src/routes/events'));
 // app.use('/analytics', require('./src/routes/analytics'));
 // app.use('/ai', require('./src/routes/ai'));
