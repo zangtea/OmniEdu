@@ -1,0 +1,17 @@
+/* Import Tailwind theo chuẩn v4 */
+@import "tailwindcss";
+
+/* Trỏ đường dẫn để Tailwind v4 đọc file cấu hình v3 của chúng ta */
+@config "../tailwind.config.ts";
+
+@layer base {
+  body {
+    @apply bg-base text-main font-sans antialiased;
+    /* Tăng khả năng đọc tiếng Việt có dấu theo Spec */
+    line-height: 1.6;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.01em;
+  }
+}
