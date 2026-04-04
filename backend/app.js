@@ -44,7 +44,7 @@ app.get('/test-db', async (req, res) => {
 // app.use('/analytics', require('./src/routes/analytics'));
 // app.use('/ai', require('./src/routes/ai'));
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 API đang chạy tại http://localhost:${PORT}`);
 });
