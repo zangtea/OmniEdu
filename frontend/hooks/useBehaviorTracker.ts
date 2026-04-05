@@ -6,24 +6,37 @@ export function useBehaviorTracker(sessionId: string, studentId: string) {
   const chosenRef = useRef<string | null>(null);
 
   const trackEvent = useCallback(async (eventType: string, payload: object) => {
-    // Tạm thời log ra Console để test Frontend
+    // Vẫn giữ log ở Console để bạn dễ theo dõi quá trình
     console.log(`🎯 [Behavior Event] ${eventType}:`, {
       ...payload,
       hour_of_day: new Date().getHours()
     });
 
-    // Tuần 5 chúng ta sẽ mở comment đoạn này để gửi về Node.js API
-    /*
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/events`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        studentId, sessionId, eventType,
-        payload: { ...payload, hour_of_day: new Date().getHours() },
-        clientTs: new Date().toISOString(),
-      }),
-    });
-    */
+    // MỞ KHÓA: Bắn dữ liệu thẳng về Backend Node.js
+    try {
+      const response = await fetch(`http://localhost:5000/quiz/behavior`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: studentId,
+          // Gói sự kiện hiện tại vào trong 1 mảng (Array) để đúng ý Python
+          events: [{
+            event_type: eventType,
+            payload: { ...payload, hour_of_day: new Date().getHours() },
+            clientTs: new Date().toISOString(),
+            sessionId: sessionId
+          }]
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // In luôn kết quả AI phân tích được ra cho nóng!
+        console.log("🧠 [AI Profile Updated]:", data.profile);
+      }
+    } catch (error) {
+      console.error("Lỗi khi gửi tracking hành vi:", error);
+    }
   }, [sessionId, studentId]);
 
   const onQuestionView = useCallback((questionId: string) => {
