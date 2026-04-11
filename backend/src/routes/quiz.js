@@ -91,9 +91,50 @@ router.post('/save-progress', async (req, res) => {
     res.status(500).json({ error: "Lỗi hệ thống khi lưu tiến độ" });
   }
 });
+// API lấy toàn bộ tiến độ học tập của một học sinh (GET)
+router.get('/student-progress/:studentId', async (req, res) => {
+  const { studentId } = req.params;
 
+  try {
+    const { data, error } = await supabase
+      .from('student_progress')
+      .select('*')
+      .eq('student_id', studentId);
+
+    if (error) throw error;
+
+    res.json({ success: true, progress: data });
+
+  } catch (error) {
+    console.error("Lỗi khi kéo điểm từ Supabase:", error);
+    res.status(500).json({ error: "Lỗi hệ thống khi lấy tiến độ" });
+  }
+});
+// API Chat với Gia sư AI 
+router.post('/get-hint', async (req, res) => {
+  const { chatHistory } = req.body; // Đổi thành chatHistory
+
+  try {
+    const aiResponse = await fetch('https://purple-places-stare.loca.lt/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Bypass-Tunnel-Reminder': 'true'
+      },
+      body: JSON.stringify({ conversation: chatHistory }) 
+    });
+
+    if (!aiResponse.ok) throw new Error("Colab API không kết nối được");
+    
+    const aiData = await aiResponse.json();
+    res.json({ success: true, hint: aiData.reply });
+
+  } catch (error) {
+    console.error("Lỗi gọi AI:", error);
+    res.status(500).json({ error: "Không kết nối được với não bộ AI" });
+  }
+});
 // 4. API lấy câu hỏi thông minh từ Supabase (GET)
-// LƯU Ý: Phải đặt API GET /:topicId ở DƯỚI CÙNG để nó không "nuốt" nhầm mấy cái POST ở trên
 router.get('/:topicId', async (req, res) => {
   const { topicId } = req.params;
   const currentTheta = parseFloat(req.query.theta) || 0; 
@@ -140,5 +181,4 @@ router.get('/:topicId', async (req, res) => {
   }
 });
 
-// LUÔN LUÔN ĐỂ DÒNG NÀY Ở CUỐI CÙNG FILE
 module.exports = router;
