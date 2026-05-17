@@ -76,7 +76,7 @@ router.post('/save-progress', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('student_progress')
-      .upsert({
+      .upsert({ 
         student_id: studentId,
         topic_id: topicId,
         current_theta: finalTheta
@@ -115,7 +115,7 @@ router.post('/get-hint', async (req, res) => {
   const { chatHistory } = req.body; // Đổi thành chatHistory
 
   try {
-    const aiResponse = await fetch('https://purple-places-stare.loca.lt/api/chat', {
+    const aiResponse = await fetch(' https://shaking-casket-unsuited.ngrok-free.dev ', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
