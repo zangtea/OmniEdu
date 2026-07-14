@@ -2,7 +2,9 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-
+if (!process.env.LLM_NGROK_URL) {
+  console.error("🚨 CRITICAL: Thiếu biến LLM_NGROK_URL trong file .env! Server không thể kết nối Gia sư AI.");
+}
 const app = express();
 
 // Cho phép frontend gọi API mà không bị chặn lỗi CORS
@@ -43,7 +45,7 @@ app.get('/test-db', async (req, res) => {
  app.use('/events', require('./src/routes/events'));
 // app.use('/analytics', require('./src/routes/analytics'));
 // app.use('/ai', require('./src/routes/ai'));
-
+app.use('/ai', require('./src/routes/ai'));
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 API đang chạy tại http://localhost:${PORT}`);

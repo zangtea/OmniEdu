@@ -4,7 +4,8 @@ const router = express.Router();
 const { supabase } = require('../db');
 const auth = require('../middleware/auth');
 const irtService = require('../services/irtService');
-
+const rawUrl = process.env.LLM_NGROK_URL || '';
+const ngrokUrl = rawUrl.trim();
 // 1. API nhận câu trả lời và cập nhật điểm theta
 router.post('/submit-answer', auth, async (req, res) => {
   const { questionId, isCorrect, topicId } = req.body;
@@ -15,6 +16,10 @@ router.post('/submit-answer', auth, async (req, res) => {
       supabase.from('skill_levels').select('*').eq('student_id', studentId).eq('topic_id', topicId).single(),
       supabase.from('questions').select('*').eq('id', questionId).single()
     ]);
+
+    // ✅ Check error trước khi access .data
+    if (skillRes.error && skillRes.error.code !== 'PGRST116') throw skillRes.error;
+    if (questionRes.error && questionRes.error.code !== 'PGRST116') throw questionRes.error;
 
     const currentSkill = skillRes.data || { theta: 0, confidence: 1, responses: 0 };
     let question = questionRes.data;
@@ -112,21 +117,32 @@ router.get('/student-progress/:studentId', async (req, res) => {
 });
 // API Chat với Gia sư AI 
 router.post('/get-hint', async (req, res) => {
-  const { chatHistory } = req.body; // Đổi thành chatHistory
+  const { chatHistory } = req.body; 
 
   try {
-    const aiResponse = await fetch(' https://shaking-casket-unsuited.ngrok-free.dev ', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Bypass-Tunnel-Reminder': 'true'
-      },
-      body: JSON.stringify({ conversation: chatHistory }) 
+    if (!chatHistory) {
+      return res.status(400).json({ error: "chatHistory không được để trống" });
+    }
+
+    const aiResponse = await fetch(`${ngrokUrl}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Bypass-Tunnel-Reminder': 'true' // Giữ nguyên mẹo xịn xò này của bạn
+        },
+    body: JSON.stringify({ conversation: chatHistory }) 
     });
 
-    if (!aiResponse.ok) throw new Error("Colab API không kết nối được");
+    if (!aiResponse.ok) throw new Error(`Colab API trả về status ${aiResponse.status}`);
     
     const aiData = await aiResponse.json();
+    
+    // ✅ Check response có reply không trước khi dùng
+    if (!aiData || !aiData.reply) {
+      console.warn("⚠️ AI response không có field 'reply':", aiData);
+      return res.status(502).json({ error: "AI không trả lời, vui lòng thử lại" });
+    }
+
     res.json({ success: true, hint: aiData.reply });
 
   } catch (error) {

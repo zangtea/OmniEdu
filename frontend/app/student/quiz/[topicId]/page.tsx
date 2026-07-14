@@ -157,7 +157,11 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
       const response = await fetch(`http://localhost:5000/quiz/get-hint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatHistory: newHistory }) 
+        body: JSON.stringify({ 
+          studentId: "student-id", 
+          questionId: question.id,
+          chatHistory: newHistory 
+      }) 
       });
 
       const data = await response.json();
@@ -260,6 +264,8 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
       </div>
     );
   }
+  
+  console.log("Dữ liệu câu hỏi render:", question);
 
   if (!question) return null;
 
