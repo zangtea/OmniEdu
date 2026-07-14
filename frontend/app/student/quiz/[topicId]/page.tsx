@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, use, useCallback } from "react";
+import { useState, useEffect, use, useCallback, useRef } from "react";
 import { Button } from "../../../../components/ui/Button";
 import { OptionCard } from "../../../../components/ui/OptionCard";
 import { X, Sparkles, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useBehaviorTracker } from "../../../../hooks/useBehaviorTracker";
+import { createBrowserClient } from "@supabase/auth-helpers-nextjs";
 
 interface QuestionData {
   id: string;
@@ -19,8 +20,24 @@ interface ChatMessage {
   content: string;
 }
 
+// Helper: Tính level từ Theta
+function getThetaLevel(theta: number): { level: string; color: string } {
+  if (theta < -1) return { level: "Beginner", color: "bg-red-500" };
+  if (theta < 0) return { level: "Elementary", color: "bg-orange-500" };
+  if (theta < 1) return { level: "Intermediate", color: "bg-yellow-500" };
+  if (theta < 2) return { level: "Advanced", color: "bg-lime-500" };
+  return { level: "Master", color: "bg-green-500" };
+}
+
+// Helper: Tính % progress dựa trên Theta (-3 đến 3)
+function getThetaProgress(theta: number): number {
+  const normalized = Math.max(-3, Math.min(3, theta)); // Clamp -3 to 3
+  return ((normalized + 3) / 6) * 100;
+}
+
 export default function QuizPage({ params }: { params: Promise<{ topicId: string }> }) {
   const { topicId } = use(params);
+  const chatEndRef = useRef<HTMLDivElement>(null); // Ref để auto-scroll
 
   const [theta, setTheta] = useState<number>(0.35); 
   const [answeredIds, setAnsweredIds] = useState<string[]>([]);
@@ -36,8 +53,54 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
   const [chatInput, setChatInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   
-  const [isFinished, setIsFinished] = useState(false); 
-  const { onQuestionView, onOptionSelect, onSubmit, trackEvent } = useBehaviorTracker("session-123", "student-456");
+  const [isFinished, setIsFinished] = useState(false);
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+  );
+  const [studentId, setStudentId] = useState<string | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const { onQuestionView, onOptionSelect, onSubmit, trackEvent } = useBehaviorTracker(studentId ?? 'session-guest', studentId ?? 'anonymous');
+
+  // Auto-scroll chat đến cuối khi có tin nhắn mới
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatHistory, isTyping]);
+
+  // Lấy session Supabase và token
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = data?.session ?? null;
+        setStudentId(session?.user?.id ?? null);
+        setAccessToken(session?.access_token ?? null);
+      } catch (err) {
+        console.error("Lỗi khi lấy session Supabase:", err);
+      }
+    };
+    initAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Wrapper fetch để tự động đính kèm JWT
+  const fetchWithAuth = async (input: RequestInfo, init: RequestInit = {}) => {
+    try {
+      if (!accessToken) {
+        throw new Error('Missing auth token');
+      }
+      const headers = { ...(init.headers || {} as any) } as Record<string, any>;
+      if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      headers['Authorization'] = `Bearer ${accessToken}`;
+      const res = await fetch(input, { ...init, headers });
+      return res;
+    } catch (err) {
+      console.error('fetchWithAuth error:', err);
+      throw err;
+    }
+  };
 
   const fetchQuestion = useCallback(async (currentAnswered: string[], currentThetaVal: number) => {
     try {
@@ -47,25 +110,25 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
         answered: currentAnswered.join(',')
       }).toString();
 
-      const response = await fetch(`http://localhost:5000/quiz/${topicId}?${queryParams}`);
-      
+      const response = await fetchWithAuth(`http://localhost:5000/quiz/${topicId}?${queryParams}`);
+
       if (!response.ok) {
           if (response.status === 404) {
-             setIsFinished(true); 
+             setIsFinished(true);
              try {
-                fetch(`http://localhost:5000/quiz/save-progress`, {
+                await fetchWithAuth(`http://localhost:5000/quiz/save-progress`, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    studentId: "student-456", 
+                    studentId: studentId,
                     topicId: decodeURIComponent(topicId),
-                    finalTheta: currentThetaVal 
+                    finalTheta: currentThetaVal
                   })
-                }).then(() => console.log("💾 Đã lưu điểm Theta vào Database an toàn!"));
+                });
+                console.log("💾 Đã lưu điểm Theta vào Database an toàn!");
              } catch (err) {
                 console.error("Lỗi gọi API lưu điểm:", err);
              }
-             return; 
+             return;
           }
           throw new Error('Không thể kết nối đến Backend');
         }
@@ -79,9 +142,10 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
   }, [topicId]);
 
   useEffect(() => {
+    if (!accessToken) return;
     fetchQuestion(answeredIds, theta);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicId]); 
+  }, [topicId, accessToken]); 
 
   useEffect(() => {
     if (question?.id) onQuestionView(question.id);
@@ -101,16 +165,13 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
       onSubmit(question.id, selectedKey, isCorrect, isHintOpen);
 
       try {
-        const response = await fetch(`http://localhost:5000/quiz/submit-answer`, {
+        const response = await fetchWithAuth(`http://localhost:5000/quiz/submit-answer`, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer test_student_token_123' 
-          },
           body: JSON.stringify({
             questionId: question.id,
             isCorrect: isCorrect,
-            topicId: decodeURIComponent(topicId)
+            topicId: decodeURIComponent(topicId),
+            studentId: studentId
           })
         });
 
@@ -154,7 +215,7 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
     setIsTyping(true);
 
     try {
-      const response = await fetch(`http://localhost:5000/quiz/get-hint`, {
+      const response = await fetchWithAuth(`http://localhost:5000/quiz/get-hint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -189,9 +250,8 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
     setIsTyping(true);
 
     try {
-      const response = await fetch(`http://localhost:5000/quiz/get-hint`, {
+      const response = await fetchWithAuth(`http://localhost:5000/quiz/get-hint`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatHistory: updatedHistory }) 
       });
 
@@ -273,19 +333,35 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
     <div className="min-h-screen bg-base flex flex-col items-center py-6 px-4 font-sans relative overflow-hidden">
       <div className="w-full max-w-lg space-y-6">
         
-        {/* Top Bar */}
-        <div className="flex items-center justify-between">
+        {/* Top Bar - Với Theta Progress */}
+        <div className="flex items-center justify-between gap-3">
           <button className="p-2 text-sub hover:bg-gray-200 rounded-full transition-colors"><X className="w-5 h-5" /></button>
-          <div className="flex-1 mx-4">
+          
+          {/* Progress Bar Container */}
+          <div className="flex-1 space-y-2">
             <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500 w-2/5 rounded-full"></div>
+              <motion.div 
+                className={`h-full rounded-full transition-all duration-700 ${getThetaLevel(theta).color}`}
+                initial={{ width: `${getThetaProgress(theta)}%` }}
+                animate={{ width: `${getThetaProgress(theta)}%` }}
+              />
+            </div>
+            <div className="text-xs text-gray-600 text-center font-medium">
+              {getThetaLevel(theta).level}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full transition-all duration-500">
-              θ {theta}
-            </span>
-          </div>
+          
+          {/* Theta Score Badge with Animation */}
+          <motion.div 
+            key={theta}
+            initial={{ scale: 0.8, backgroundColor: "rgb(254, 243, 199)" }}
+            animate={{ scale: 1, backgroundColor: "rgb(230, 230, 250)" }}
+            transition={{ duration: 0.3 }}
+            className="flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100"
+          >
+            <span className="text-xs font-semibold text-indigo-700">θ</span>
+            <span className="text-sm font-bold text-indigo-700">{theta}</span>
+          </motion.div>
         </div>
 
         {/* Question Zone */}
@@ -322,26 +398,39 @@ export default function QuizPage({ params }: { params: Promise<{ topicId: string
               exit={{ opacity: 0, y: 20 }}
               className="mt-6 p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex flex-col space-y-4 max-h-96"
             >
-              <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2">
                 {chatHistory.map((msg, idx) => (
-                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <motion.div 
+                    key={idx}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05, duration: 0.3 }}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
                     <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
                       msg.role === 'user' 
-                        ? 'bg-indigo-600 text-white rounded-br-sm' 
-                        : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm whitespace-pre-line'
+                        ? 'bg-indigo-600 text-white rounded-br-sm shadow-sm' 
+                        : 'bg-white text-gray-800 border border-gray-200 rounded-bl-sm whitespace-pre-line shadow-sm'
                     }`}>
                       {msg.role === 'user' && idx === 0 ? "Gia sư ơi, gợi ý giúp em câu này với!" : msg.content}
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
                 
                 {isTyping && (
-                  <div className="flex justify-start">
-                    <div className="bg-white border border-gray-200 p-3 rounded-2xl rounded-bl-sm text-gray-500 italic text-sm animate-pulse">
-                      🤖 Gia sư đang suy nghĩ...
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-start"
+                  >
+                    <div className="bg-white border border-gray-200 p-3 rounded-2xl rounded-bl-sm flex items-center gap-2 text-gray-600 text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                      <span>Gia sư đang suy nghĩ...</span>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
+                
+                <div ref={chatEndRef} />
               </div>
 
               <div className="flex gap-2 pt-2 border-t border-indigo-100/50">

@@ -197,4 +197,62 @@ router.get('/:topicId', async (req, res) => {
   }
 });
 
+// 5. API lấy quiz history của học sinh (GET)
+router.get('/history/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    // Lấy tất cả quiz responses
+    const { data: responses, error } = await supabase
+      .from('quiz_responses')
+      .select('*, questions(topic_id, difficulty_level)')
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) throw error;
+
+    res.json({ 
+      success: true, 
+      history: responses || [],
+      total: responses?.length || 0
+    });
+  } catch (error) {
+    console.error("Lỗi khi lấy quiz history:", error);
+    res.status(500).json({ error: "Lỗi hệ thống khi lấy lịch sử quiz" });
+  }
+});
+
+// 6. API lấy stats của học sinh theo từng topic (GET)
+router.get('/stats/:studentId', async (req, res) => {
+  const { studentId } = req.params;
+
+  try {
+    // Lấy progress theo từng topic
+    const { data: stats, error } = await supabase
+      .from('skill_levels')
+      .select('topic_id, theta, confidence, responses, updated_at')
+      .eq('student_id', studentId);
+
+    if (error) throw error;
+
+    // Tính trung bình Theta, tổng số câu trả lời
+    const totalResponses = stats?.reduce((sum, s) => sum + (s.responses || 0), 0) || 0;
+    const avgTheta = stats?.length > 0 
+      ? (stats.reduce((sum, s) => sum + (s.theta || 0), 0) / stats.length).toFixed(2)
+      : 0;
+
+    res.json({
+      success: true,
+      totalTopics: stats?.length || 0,
+      totalResponses: totalResponses,
+      averageTheta: parseFloat(avgTheta),
+      stats: stats || []
+    });
+  } catch (error) {
+    console.error("Lỗi khi lấy stats:", error);
+    res.status(500).json({ error: "Lỗi hệ thống khi lấy thống kê" });
+  }
+});
+
 module.exports = router;
